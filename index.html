@@ -40,10 +40,19 @@ canvas {
   z-index: 10;
 }
 #finaleButtons {
-  display: none;
+  display: flex;
   gap: 16px;
-  pointer-events: auto;
+  pointer-events: none;
   margin-top: 20px;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+#finaleButtons.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 #finaleButtons button {
   font-family: 'Fredoka', sans-serif;
@@ -59,6 +68,13 @@ canvas {
 }
 #finaleButtons button:hover {
   transform: scale(1.08);
+  box-shadow: 0 6px 25px rgba(231,84,128,0.6);
+}
+#btnYes:hover {
+  background: linear-gradient(135deg, #d44872, #ff5a8d);
+}
+#btnObvious:hover {
+  background: linear-gradient(135deg, #ff5a8d, #ffa3b6);
 }
 #btnYes {
   background: linear-gradient(135deg, #e75480, #ff6b9d);
@@ -219,6 +235,112 @@ let roadStripes = [];
 let obstacleTimer = 0;
 let collectibleTimer = 0;
 let smiskiSpawnTimer = 0;
+
+// --- Visual Effect Systems ---
+// Screen shake
+const screenShake = { x: 0, y: 0, intensity: 0, decay: 0.88 };
+function triggerScreenShake(intensity) {
+  screenShake.intensity = Math.max(screenShake.intensity, intensity);
+}
+function updateScreenShake() {
+  if (screenShake.intensity > 0.5) {
+    screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
+    screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
+    screenShake.intensity *= screenShake.decay;
+  } else {
+    screenShake.x = 0; screenShake.y = 0; screenShake.intensity = 0;
+  }
+}
+
+// Score popups
+let scorePopups = [];
+function spawnScorePopup(text, screenX, screenY, color) {
+  scorePopups.push({ text, x: screenX, y: screenY, vy: -2.5, life: 1.0, color: color || COL.gold, size: 18, scale: 1.5 });
+}
+function updateScorePopups(dt) {
+  for (let i = scorePopups.length - 1; i >= 0; i--) {
+    const p = scorePopups[i];
+    p.y += p.vy; p.life -= dt;
+    p.scale = 1 + Math.max(0, (p.life - 0.7)) * 1.5;
+    if (p.life <= 0) scorePopups.splice(i, 1);
+  }
+}
+function drawScorePopups() {
+  scorePopups.forEach(p => {
+    ctx.globalAlpha = Math.min(1, p.life * 2);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(p.scale, p.scale);
+    ctx.font = `bold ${p.size}px Fredoka`;
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 3;
+    ctx.strokeText(p.text, 0, 0);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, 0, 0);
+    ctx.restore();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// Screen flash
+let screenFlash = { color: '', alpha: 0, decay: 0.92 };
+function triggerFlash(color, alpha, decay) {
+  screenFlash.color = color; screenFlash.alpha = alpha; screenFlash.decay = decay || 0.92;
+}
+function updateFlash() {
+  if (screenFlash.alpha > 0.01) screenFlash.alpha *= screenFlash.decay;
+  else screenFlash.alpha = 0;
+}
+function drawFlash() {
+  if (screenFlash.alpha > 0.01) {
+    ctx.fillStyle = screenFlash.color;
+    ctx.globalAlpha = screenFlash.alpha;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// Ambient petals
+let ambientPetals = [];
+function initAmbientPetals() {
+  ambientPetals = [];
+  for (let i = 0; i < 15; i++) {
+    ambientPetals.push({
+      x: Math.random() * W, y: Math.random() * H,
+      vx: -0.3 - Math.random() * 0.5, vy: 0.2 + Math.random() * 0.4,
+      rot: Math.random() * Math.PI * 2, rotV: (Math.random() - 0.5) * 0.05,
+      size: 3 + Math.random() * 3, alpha: 0.2 + Math.random() * 0.3,
+      color: Math.random() > 0.5 ? '#FFB3C6' : '#FFC0CB',
+    });
+  }
+}
+function updateAmbientPetals() {
+  ambientPetals.forEach(p => {
+    p.x += p.vx + Math.sin(Date.now() / 2000 + p.rot) * 0.3;
+    p.y += p.vy; p.rot += p.rotV;
+    if (p.y > H + 10) { p.y = -10; p.x = Math.random() * W; }
+    if (p.x < -10) p.x = W + 10;
+  });
+}
+function drawAmbientPetals() {
+  ambientPetals.forEach(p => {
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, p.size, p.size * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// Finale transition
+let finaleTransition = 0;
+let lastTypeChar1 = 0, lastTypeChar2 = 0;
 
 const LANDMARK_DATA = [
   { name: '4 Charles', file: '4-charles.jpg', side: 'left' },
@@ -489,6 +611,32 @@ function playSound(type) {
         o2.start(t + i * 0.15); o2.stop(t + 0.25 + i * 0.15);
       });
       return;
+    } else if (type === 'lane') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(250, t);
+      osc.frequency.linearRampToValueAtTime(400, t + 0.06);
+      osc.frequency.linearRampToValueAtTime(250, t + 0.1);
+      gain.gain.value = 0.04;
+      gain.gain.linearRampToValueAtTime(0, t + 0.1);
+      osc.start(t); osc.stop(t + 0.1);
+    } else if (type === 'speedboost') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(200, t);
+      osc.frequency.exponentialRampToValueAtTime(800, t + 0.3);
+      gain.gain.value = 0.05;
+      gain.gain.linearRampToValueAtTime(0, t + 0.35);
+      osc.start(t); osc.stop(t + 0.35);
+    } else if (type === 'shield') {
+      [400, 500, 600].forEach((f, i) => {
+        const o2 = audioCtx.createOscillator();
+        const g2 = audioCtx.createGain();
+        o2.connect(g2); g2.connect(audioCtx.destination);
+        o2.type = 'triangle';
+        o2.frequency.value = f; g2.gain.value = 0.04;
+        g2.gain.linearRampToValueAtTime(0, t + 0.2 + i * 0.08);
+        o2.start(t + i * 0.08); o2.stop(t + 0.2 + i * 0.08);
+      });
+      return;
     }
   } catch(e) {}
 }
@@ -500,10 +648,15 @@ function handleInput(action) {
 
   if (action === 'left' && dog.targetLane > 0) {
     dog.targetLane--;
-    playSound('slide');
+    playSound('lane');
+    // Lane switch dust
+    const dustP = project(dog.laneX, 0, DOG_Z);
+    for (let i = 0; i < 4; i++) particles.push({ x: dustP.x, y: dustP.y, vx: 2 + Math.random(), vy: -Math.random() * 1.5, life: 0.3, color: 'rgba(161,136,127,0.5)', size: 2 + Math.random() * 2 });
   } else if (action === 'right' && dog.targetLane < 2) {
     dog.targetLane++;
-    playSound('slide');
+    playSound('lane');
+    const dustP = project(dog.laneX, 0, DOG_Z);
+    for (let i = 0; i < 4; i++) particles.push({ x: dustP.x, y: dustP.y, vx: -2 - Math.random(), vy: -Math.random() * 1.5, life: 0.3, color: 'rgba(161,136,127,0.5)', size: 2 + Math.random() * 2 });
   } else if (action === 'jump' && !dog.jumping) {
     dog.jumping = true;
     dog.vy = 320; // Higher jump to clear obstacles
@@ -625,9 +778,16 @@ function startGame() {
   initSideBuildings();
   initRoadStripes();
   initLandmarks();
+  initAmbientPetals();
   initAudio();
-  document.getElementById('finaleButtons').style.display = 'none';
-  LottieEffects.clear(); // Clear any lingering Lottie effects
+  finaleTransition = 0;
+  lastTypeChar1 = 0;
+  lastTypeChar2 = 0;
+  scorePopups = [];
+  screenShake.intensity = 0;
+  screenFlash.alpha = 0;
+  document.getElementById('finaleButtons').classList.remove('visible');
+  LottieEffects.clear();
 }
 
 // --- Update ---
@@ -672,6 +832,15 @@ function update(dt) {
       dog.y = 0;
       dog.vy = 0;
       dog.jumping = false;
+      // Landing dust puff
+      const landP = project(dog.laneX, 0, DOG_Z);
+      for (let i = 0; i < 6; i++) {
+        particles.push({
+          x: landP.x + (Math.random() - 0.5) * 30, y: landP.y,
+          vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 1.5,
+          life: 0.4, color: 'rgba(161,136,127,0.6)', size: 3 + Math.random() * 3,
+        });
+      }
     }
   }
 
@@ -809,6 +978,8 @@ function update(dt) {
         dog.stumble = 1.0; // 1 second stun
         speed = Math.max(baseSpeed * 0.6, speed * 0.7);
         spawnHitParticles(o);
+        triggerScreenShake(12);
+        triggerFlash('#ff0000', 0.3, 0.88);
         playSound('hit');
         break;
       }
@@ -827,15 +998,27 @@ function update(dt) {
 
   // Particles
   updateParticles(dt);
+  updateScorePopups(dt);
+  updateScreenShake();
+  updateFlash();
+  updateAmbientPetals();
 
   // Update Lottie effects positions
   LottieEffects.update(dt);
 
-  // Game end
-  if (gameTime >= GAME_DURATION) {
-    state = STATE.FINALE;
-    finaleTimer = 0;
-    playSound('finale');
+  // Game end — smooth transition
+  if (gameTime >= GAME_DURATION && finaleTransition === 0) {
+    finaleTransition = 0.001; // start transition
+  }
+  if (finaleTransition > 0 && state === STATE.PLAYING) {
+    finaleTransition += dt;
+    speed = baseSpeed * Math.max(0, 1 - finaleTransition / 1.0);
+    if (finaleTransition > 1.5) {
+      state = STATE.FINALE;
+      finaleTimer = 0;
+      finaleTransition = 0;
+      playSound('finale');
+    }
   }
 }
 
@@ -895,19 +1078,19 @@ function applyCollectible(c) {
   LottieEffects.spawn('sparkle', p.x, p.y, { size: c.type === 'smiski' ? 80 : 50 });
   
   switch (c.type) {
-    case 'tennis': 
-      dog.speedBoost = 3; 
-      score += 100; 
-      // Spawn speed lines effect following dog
+    case 'tennis':
+      dog.speedBoost = 3;
+      score += 100;
+      playSound('speedboost');
       if (!dog.speedLottieId) {
         dog.speedLottieId = LottieEffects.spawn('speed', 0, 0, { follow: dog, size: 80, loop: true });
       }
       break;
     case 'fashion': score += 200; break;
-    case 'yoga': 
-      dog.invincible = 4; 
-      score += 100; 
-      // Spawn shield glow effect following dog
+    case 'yoga':
+      dog.invincible = 4;
+      score += 100;
+      playSound('shield');
       if (!dog.shieldLottieId) {
         dog.shieldLottieId = LottieEffects.spawn('shield', 0, 0, { follow: dog, size: 70, loop: true });
       }
@@ -915,33 +1098,47 @@ function applyCollectible(c) {
     case 'chili': dog.magnet = 5; score += 100; break;
     case 'smiski': smiskisFound = Math.min(smiskisFound + 1, TOTAL_SMISKIS); score += 500; break;
   }
+  // Score popup
+  const popP = project(LANE_X[Math.round(c.lane)], c.airborne ? 50 : 20, DOG_Z);
+  const popText = c.type === 'smiski' ? '+500 SMISKI!' : c.type === 'fashion' ? '+200' : c.type === 'tennis' ? 'SPEED!' : c.type === 'yoga' ? 'SHIELD!' : c.type === 'chili' ? 'MAGNET!' : '+100';
+  const popColor = c.type === 'smiski' ? COL.smiski : c.type === 'fashion' ? COL.gold : COL.white;
+  spawnScorePopup(popText, popP.x, popP.y - 20, popColor);
+  // Screen flash
+  if (c.type === 'smiski') triggerFlash('#A8D8A8', 0.25, 0.9);
+  else if (c.type === 'tennis') triggerFlash('#FFD700', 0.2, 0.92);
 }
 
 // --- Particles ---
 function spawnCollectParticles(c) {
   const p = project(LANE_X[Math.round(c.lane)], c.airborne ? 50 : 20, DOG_Z);
-  for (let i = 0; i < 10; i++) {
+  const count = c.type === 'smiski' ? 28 : 18;
+  const baseColor = c.type === 'smiski' ? COL.smiski : COL.gold;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const spd = 2 + Math.random() * 5;
     particles.push({
       x: p.x, y: p.y,
-      vx: (Math.random() - 0.5) * 6,
-      vy: (Math.random() - 0.5) * 6 - 2,
-      life: 0.6,
-      color: c.type === 'smiski' ? COL.smiski : COL.gold,
-      size: 3 + Math.random() * 3,
+      vx: Math.cos(angle) * spd + (Math.random() - 0.5) * 2,
+      vy: Math.sin(angle) * spd - 2,
+      life: 0.5 + Math.random() * 0.4,
+      color: Math.random() > 0.3 ? baseColor : COL.white,
+      size: 2 + Math.random() * 4,
     });
   }
 }
 
 function spawnHitParticles(o) {
   const p = project(LANE_X[o.lane], 20, DOG_Z);
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 16; i++) {
+    const angle = (i / 16) * Math.PI * 2;
+    const spd = 2 + Math.random() * 4;
     particles.push({
       x: p.x, y: p.y,
-      vx: (Math.random() - 0.5) * 5,
-      vy: (Math.random() - 0.5) * 5,
-      life: 0.5,
-      color: '#ff4444',
-      size: 3 + Math.random() * 2,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd - 1,
+      life: 0.5 + Math.random() * 0.3,
+      color: Math.random() > 0.4 ? '#ff4444' : '#ff8844',
+      size: 2 + Math.random() * 4,
     });
   }
 }
@@ -1013,10 +1210,38 @@ function draw() {
   if (state === STATE.DONE) { drawDoneScene(); return; }
 
   // --- PLAYING ---
+  ctx.save();
+  ctx.translate(screenShake.x, screenShake.y);
   drawSky();
   drawRoad();
+  // Speed lines from vanishing point during boost
+  if (dog.speedBoost > 0) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,215,0,0.15)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2 + Date.now() / 500;
+      const len = 150 + Math.sin(Date.now() / 100 + i) * 50;
+      ctx.beginPath();
+      ctx.moveTo(VANISH_X + Math.cos(angle) * 40, VANISH_Y + Math.sin(angle) * 20);
+      ctx.lineTo(VANISH_X + Math.cos(angle) * len, VANISH_Y + Math.sin(angle) * (len * 0.6));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
   drawScene();
+  drawAmbientPetals();
+  ctx.restore();
   drawHUD();
+  drawScorePopups();
+  drawFlash();
+  // Finale transition fade overlay
+  if (finaleTransition > 0) {
+    ctx.fillStyle = '#FFF8E7';
+    ctx.globalAlpha = Math.min(1, finaleTransition / 1.2);
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
 }
 
 // --- Sky with NYC Skyline on LEFT, Statue of Liberty on RIGHT ---
@@ -1024,9 +1249,10 @@ function drawSky() {
   // Sky gradient
   const grad = ctx.createLinearGradient(0, 0, 0, VANISH_Y + 50);
   grad.addColorStop(0, '#5BA3C9');
-  grad.addColorStop(0.4, '#87CEEB');
-  grad.addColorStop(0.7, '#B8D8EB');
-  grad.addColorStop(1, '#C5D5E0');
+  grad.addColorStop(0.35, '#87CEEB');
+  grad.addColorStop(0.6, '#B8D8EB');
+  grad.addColorStop(0.85, '#FFD4A8');
+  grad.addColorStop(1, '#FFBB77');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, VANISH_Y + 50);
 
@@ -1038,6 +1264,15 @@ function drawSky() {
     const cy = 25 + i * 25;
     drawCloud(cx, cy, 25 + i * 6);
   }
+
+  // Sun glow near horizon
+  const sunX = W * 0.35, sunY = VANISH_Y - 5;
+  const sunGrad = ctx.createRadialGradient(sunX, sunY, 5, sunX, sunY, 80);
+  sunGrad.addColorStop(0, 'rgba(255,220,150,0.7)');
+  sunGrad.addColorStop(0.3, 'rgba(255,180,100,0.25)');
+  sunGrad.addColorStop(1, 'rgba(255,150,80,0)');
+  ctx.fillStyle = sunGrad;
+  ctx.fillRect(sunX - 80, sunY - 80, 160, 85);
 
   // NYC Skyline on LEFT (Manhattan/downtown)
   ctx.fillStyle = COL.skyline;
@@ -1139,6 +1374,33 @@ function drawStatueOfLiberty() {
 
 // --- Road with proper 3D perspective ---
 function drawRoad() {
+  // === CITY GROUND (left side - behind everything) ===
+  // Fills from far left to the highway edge so the sky doesn't bleed through
+  const groundL0 = project(-2000, 0, 0);
+  const groundR0 = project(-750, 0, 0);
+  const groundL1 = project(-2000, 0, MAX_Z);
+  const groundR1 = project(-750, 0, MAX_Z);
+  ctx.fillStyle = '#6B6B6B'; // City sidewalk/concrete gray
+  ctx.beginPath();
+  ctx.moveTo(0, groundL0.y);
+  ctx.lineTo(0, VANISH_Y);
+  ctx.lineTo(groundR1.x, groundR1.y);
+  ctx.lineTo(groundR0.x, groundR0.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Sidewalk strip between highway and buildings
+  const swL0 = project(-950, 0, 0);
+  const swR0 = project(-750, 0, 0);
+  const swL1 = project(-950, 0, MAX_Z);
+  const swR1 = project(-750, 0, MAX_Z);
+  ctx.fillStyle = '#888'; // Lighter sidewalk
+  ctx.beginPath();
+  ctx.moveTo(swL0.x, swL0.y); ctx.lineTo(swL1.x, swL1.y);
+  ctx.lineTo(swR1.x, swR1.y); ctx.lineTo(swR0.x, swR0.y);
+  ctx.closePath();
+  ctx.fill();
+
   // === HUDSON RIVER (right side) ===
   const riverNearX = 200; // Water starts right after the running path
   const riverNear0 = project(riverNearX, 0, 0);
@@ -1192,6 +1454,28 @@ function drawRoad() {
   ctx.beginPath(); ctx.moveTo(runL0.x, runL0.y); ctx.lineTo(runL1.x, runL1.y); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(runR0.x, runR0.y); ctx.lineTo(runR1.x, runR1.y); ctx.stroke();
 
+  // Lane divider lines on running path
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([8, 16]);
+  for (const laneEdge of [-60, 60]) {
+    const le0 = project(laneEdge, 0, 0);
+    const le1 = project(laneEdge, 0, MAX_Z);
+    ctx.beginPath(); ctx.moveTo(le0.x, le0.y); ctx.lineTo(le1.x, le1.y); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // === SIDEWALK between running path and bike path ===
+  const swkL0 = project(-210, 0, 0);
+  const swkR0 = project(-200, 0, 0);
+  const swkL1 = project(-210, 0, MAX_Z);
+  const swkR1 = project(-200, 0, MAX_Z);
+  ctx.fillStyle = '#999';
+  ctx.beginPath();
+  ctx.moveTo(swkL0.x, swkL0.y); ctx.lineTo(swkL1.x, swkL1.y);
+  ctx.lineTo(swkR1.x, swkR1.y); ctx.lineTo(swkR0.x, swkR0.y);
+  ctx.fill();
+
   // === BIKE PATH (Left - Scenery) ===
   const bikeL0 = project(-350, 0, 0);
   const bikeR0 = project(-210, 0, 0);
@@ -1202,12 +1486,17 @@ function drawRoad() {
   ctx.moveTo(bikeL0.x, bikeL0.y); ctx.lineTo(bikeL1.x, bikeL1.y);
   ctx.lineTo(bikeR1.x, bikeR1.y); ctx.lineTo(bikeR0.x, bikeR0.y);
   ctx.fill();
-  // Green divider
-  ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = 2;
-  const blLine0 = project(-215, 0, 0);
-  const blLine1 = project(-215, 0, MAX_Z);
-  ctx.beginPath(); ctx.moveTo(blLine0.x, blLine0.y); ctx.lineTo(blLine1.x, blLine1.y); ctx.stroke();
+
+  // === GREEN MEDIAN between bike path and highway ===
+  const medL0 = project(-360, 0, 0);
+  const medR0 = project(-350, 0, 0);
+  const medL1 = project(-360, 0, MAX_Z);
+  const medR1 = project(-350, 0, MAX_Z);
+  ctx.fillStyle = '#4A7A3A';
+  ctx.beginPath();
+  ctx.moveTo(medL0.x, medL0.y); ctx.lineTo(medL1.x, medL1.y);
+  ctx.lineTo(medR1.x, medR1.y); ctx.lineTo(medR0.x, medR0.y);
+  ctx.fill();
 
   // === HIGHWAY (Further Left - Scenery) ===
   const hwyL0 = project(-750, 0, 0);
@@ -1312,6 +1601,9 @@ function drawBuilding(b) {
 
   if (s < 0.05 || s > 3.0) return;
 
+  // Atmospheric perspective — fade distant objects
+  if (s < 0.15) ctx.globalAlpha = s / 0.15;
+
   if (isLeft) {
     // City building (Far Left)
     const bh = b.h * s;
@@ -1357,6 +1649,7 @@ function drawBuilding(b) {
     ctx.lineTo(pShore.x + pLength, pShore.y - ph - 10 * s);
     ctx.stroke();
   }
+  ctx.globalAlpha = 1;
 }
 
 function drawHighwayCar(c) {
@@ -1474,6 +1767,19 @@ function drawLandmarkObj(lm) {
     ctx.textAlign = 'center';
     ctx.fillText(lm.name, (p1.x + p2.x) / 2, p1.y - screenH * 0.02);
     ctx.textAlign = 'left';
+  }
+
+  // Landmark pass sparkle effect
+  if (lm.z < 200 && lm.z > 0 && !lm.glowSpawned) {
+    lm.glowSpawned = true;
+    for (let i = 0; i < 8; i++) {
+      particles.push({
+        x: (p1.x + p2.x) / 2 + (Math.random() - 0.5) * screenW,
+        y: (p1.y + p4.y) / 2 + (Math.random() - 0.5) * screenH,
+        vx: (Math.random() - 0.5) * 3, vy: -1 - Math.random() * 2,
+        life: 0.6, color: COL.gold, size: 2 + Math.random() * 3,
+      });
+    }
   }
 }
 
@@ -1629,10 +1935,16 @@ function drawObstacle(o) {
     // Green frog
     const fw = size * 0.8;
     const fh = size * 0.6;
-    const jump = Math.abs(Math.sin(Date.now() / 200)) * 10 * s;
+    // Squash/stretch jump cycle
+    const jumpT = (Date.now() / 600) % 1;
+    const jumpCurve = jumpT < 0.5 ? Math.sin(jumpT * Math.PI) : 0;
+    const jump = jumpCurve * 15 * s;
+    const squashX = 1 + (1 - jumpCurve) * 0.15;
+    const squashY = 1 - (1 - jumpCurve) * 0.1;
     ctx.save();
     ctx.translate(0, -jump);
-    
+    ctx.scale(squashX, squashY);
+
     // Body
     ctx.fillStyle = '#4CAF50';
     ctx.beginPath();
@@ -1651,9 +1963,12 @@ function drawObstacle(o) {
     ctx.fill();
     ctx.restore();
 
-    // Ribbit bubble
-    if (size > 15 && Math.floor(Date.now() / 1000) % 2 === 0) {
+    // Ribbit bubble with smooth fade
+    if (size > 15) {
+      const bubbleAlpha = (Math.sin(Date.now() / 1000 * Math.PI) + 1) / 2;
+      ctx.globalAlpha = bubbleAlpha;
       drawBubble('Ribbit', 0, -fh * 1.0, size);
+      ctx.globalAlpha = 1;
     }
 
   } else if (o.type === 'duck') {
@@ -1687,9 +2002,12 @@ function drawObstacle(o) {
     ctx.fill();
     ctx.restore();
 
-    // Quack bubble
-    if (size > 15 && Math.floor(Date.now() / 1000 + 0.5) % 2 === 0) {
+    // Quack bubble with smooth fade
+    if (size > 15) {
+      const bubbleAlpha = (Math.sin(Date.now() / 1000 * Math.PI + 0.5) + 1) / 2;
+      ctx.globalAlpha = bubbleAlpha;
       drawBubble('Quack', 0, -dh * 1.1, size);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -1803,15 +2121,19 @@ function drawDog() {
     ctx.globalAlpha = 0.5;
   }
 
-  // Invincible glow
-  if (dog.invincible > 0) {
-    ctx.save();
-    ctx.shadowColor = '#2ecc71';
-    ctx.shadowBlur = 15 + Math.sin(Date.now() / 100) * 5;
-  }
-
   ctx.save();
   ctx.translate(p.x, p.y);
+
+  // Shield bubble aura
+  if (dog.invincible > 0) {
+    const shieldPulse = Math.sin(Date.now() / 150) * 0.15;
+    const shieldR = size * 0.65 + shieldPulse * size * 0.1;
+    ctx.strokeStyle = `rgba(46,204,113,${0.3 + shieldPulse})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, -size * 0.25, shieldR, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(46,204,113,${0.08 + shieldPulse * 0.05})`;
+    ctx.fill();
+  }
 
   // Shadow on ground
   const shadowP = project(dog.laneX, 0, DOG_Z);
@@ -1832,7 +2154,6 @@ function drawDog() {
   }
 
   ctx.restore();
-  if (dog.invincible > 0) ctx.restore();
   ctx.globalAlpha = 1;
 
   // Speed boost trail
@@ -2158,77 +2479,119 @@ function drawDogSliding(size) {
 }
 
 // --- HUD ---
-function drawHUD() {
-  // Score
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  roundRectFill(10, 10, 160, 28, 8);
-  ctx.fillStyle = COL.white;
-  ctx.font = 'bold 14px Fredoka';
-  ctx.textAlign = 'left';
-  ctx.fillText('Score: ' + score, 20, 30);
+function drawHUDPill(x, y, w, h, r) {
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.3)';
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = 'rgba(13,13,26,0.55)';
+  roundRectFill(x, y, w, h, r || 12);
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + (r||12), y);
+  ctx.lineTo(x + w - (r||12), y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + (r||12));
+  ctx.lineTo(x + w, y + h - (r||12));
+  ctx.quadraticCurveTo(x + w, y + h, x + w - (r||12), y + h);
+  ctx.lineTo(x + (r||12), y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - (r||12));
+  ctx.lineTo(x, y + (r||12));
+  ctx.quadraticCurveTo(x, y, x + (r||12), y);
+  ctx.stroke();
+  ctx.restore();
+}
 
-  // Timer
+function drawHUD() {
+  // Score pill
+  drawHUDPill(10, 10, 170, 30, 12);
+  ctx.fillStyle = COL.dogBrown;
+  ctx.beginPath(); ctx.arc(28, 25, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = COL.white;
+  ctx.font = 'bold 15px Fredoka';
+  ctx.textAlign = 'left';
+  ctx.fillText(score.toLocaleString(), 42, 31);
+
+  // Timer pill with urgency pulse
   const timeLeft = Math.max(0, Math.ceil(GAME_DURATION - gameTime));
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  roundRectFill(W - 130, 10, 120, 28, 8);
-  ctx.fillStyle = timeLeft < 10 ? '#ff4444' : COL.white;
+  const timerUrgent = timeLeft < 10;
+  if (timerUrgent) {
+    const pulse = 0.4 + Math.sin(Date.now() / Math.max(50, 200 - (10 - timeLeft) * 15)) * 0.3;
+    ctx.save();
+    ctx.fillStyle = `rgba(255,68,68,${pulse})`;
+    roundRectFill(W - 135, 10, 125, 30, 12);
+    ctx.restore();
+  } else {
+    drawHUDPill(W - 135, 10, 125, 30, 12);
+  }
+  ctx.fillStyle = timerUrgent ? '#ff6666' : COL.white;
+  ctx.font = 'bold 15px Fredoka';
   ctx.textAlign = 'right';
-  ctx.fillText('Time: ' + timeLeft, W - 20, 30);
+  ctx.fillText('Time: ' + timeLeft, W - 20, 31);
 
   // Smiski counter
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  roundRectFill(10, 44, 180, 24, 8);
+  drawHUDPill(10, 46, 180, 24, 10);
   ctx.fillStyle = COL.smiski;
   ctx.textAlign = 'left';
   ctx.font = 'bold 12px Fredoka';
-  ctx.fillText('Smiskis: ' + smiskisFound + ' / ' + TOTAL_SMISKIS, 20, 61);
+  ctx.fillText('Smiskis: ' + smiskisFound + ' / ' + TOTAL_SMISKIS, 22, 63);
 
   // Progress bar
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  roundRectFill(W/2 - 120, 10, 240, 10, 5);
+  const barX = W/2 - 130, barY = 10, barW = 260, barH = 12;
+  drawHUDPill(barX, barY, barW, barH, 6);
   const progress = Math.min(1, gameTime / GAME_DURATION);
-  ctx.fillStyle = COL.pinkLight;
-  roundRectFill(W/2 - 120, 10, 240 * progress, 10, 5);
+  const progGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  progGrad.addColorStop(0, '#e75480');
+  progGrad.addColorStop(1, '#ff6b9d');
+  ctx.fillStyle = progGrad;
+  if (progress > 0.01) roundRectFill(barX + 1, barY + 1, (barW - 2) * progress, barH - 2, 5);
+
+  // Glow at leading edge
+  if (progress > 0.02) {
+    const edgeX = barX + barW * progress;
+    ctx.fillStyle = 'rgba(255,107,157,0.6)';
+    ctx.beginPath(); ctx.arc(edgeX, barY + barH/2, 4, 0, Math.PI * 2); ctx.fill();
+  }
 
   // Landmark dots
   LANDMARK_DATA.forEach((lm, i) => {
     const lmProg = (i + 1) / (LANDMARK_DATA.length + 1);
-    const dotX = W/2 - 120 + 240 * lmProg;
-    ctx.fillStyle = progress >= lmProg ? COL.white : 'rgba(255,255,255,0.3)';
-    ctx.beginPath();
-    ctx.arc(dotX, 15, 3, 0, Math.PI * 2);
-    ctx.fill();
+    const dotX = barX + barW * lmProg;
+    ctx.fillStyle = progress >= lmProg ? COL.white : 'rgba(255,255,255,0.25)';
+    ctx.beginPath(); ctx.arc(dotX, barY + barH/2, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   });
 
   // Paw at progress
+  const pawX = barX + barW * progress;
   ctx.fillStyle = COL.dogBrown;
-  const pawX = W/2 - 120 + 240 * progress;
-  ctx.beginPath();
-  ctx.arc(pawX, 15, 5, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(pawX, barY + barH/2, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = COL.white;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 
-  // Power-up indicators
-  let indicatorY = 74;
-  if (dog.speedBoost > 0) {
-    ctx.fillStyle = '#f39c12';
-    ctx.font = 'bold 11px Fredoka';
+  // Power-up indicators with timer bars
+  let indicatorY = 76;
+  function drawPowerBar(label, emoji, timeRemain, maxTime, color) {
+    drawHUDPill(10, indicatorY, 155, 22, 8);
+    ctx.font = '14px serif';
     ctx.textAlign = 'left';
-    ctx.fillText('SPEED BOOST!', 15, indicatorY);
-    indicatorY += 18;
-  }
-  if (dog.invincible > 0) {
-    ctx.fillStyle = '#2ecc71';
+    ctx.fillText(emoji, 20, indicatorY + 16);
+    ctx.fillStyle = color;
     ctx.font = 'bold 11px Fredoka';
-    ctx.textAlign = 'left';
-    ctx.fillText('SHIELD!', 15, indicatorY);
-    indicatorY += 18;
+    ctx.fillText(label, 38, indicatorY + 16);
+    const barFrac = Math.max(0, timeRemain / maxTime);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.4;
+    roundRectFill(102, indicatorY + 6, 52 * barFrac, 10, 4);
+    ctx.globalAlpha = 1;
+    indicatorY += 28;
   }
-  if (dog.magnet > 0) {
-    ctx.fillStyle = '#3498db';
-    ctx.font = 'bold 11px Fredoka';
-    ctx.textAlign = 'left';
-    ctx.fillText('MAGNET!', 15, indicatorY);
-  }
+  if (dog.speedBoost > 0) drawPowerBar('SPEED', '\uD83C\uDFBE', dog.speedBoost, 3, '#f39c12');
+  if (dog.invincible > 0) drawPowerBar('SHIELD', '\uD83E\uDDD8', dog.invincible, 4, '#2ecc71');
+  if (dog.magnet > 0) drawPowerBar('MAGNET', '\uD83C\uDF36\uFE0F', dog.magnet, 5, '#3498db');
 
   ctx.textAlign = 'left';
 }
@@ -2247,52 +2610,103 @@ function drawParticles() {
 
 // --- Title Screen ---
 function drawTitle() {
-  drawSky();
-  // Static road perspective
+  // Golden hour title sky
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, VANISH_Y + 50);
+  skyGrad.addColorStop(0, '#5BA3C9');
+  skyGrad.addColorStop(0.3, '#87CEEB');
+  skyGrad.addColorStop(0.6, '#FFD4A8');
+  skyGrad.addColorStop(0.85, '#FF9A56');
+  skyGrad.addColorStop(1, '#E8734A');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, VANISH_Y + 50);
+
+  // Clouds
+  const ct = Date.now() / 8000;
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  for (let i = 0; i < 4; i++) {
+    const cx = ((i * 220 + ct * 20) % (W + 100)) - 50;
+    const cy = 25 + i * 25;
+    drawCloud(cx, cy, 25 + i * 6);
+  }
+
+  drawNYCSkylineLeft();
+  drawStatueOfLiberty();
   drawRoad();
 
   // Darken overlay
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.fillRect(0, 0, W, H);
 
-  // Title
+  // Floating hearts (more, varied)
+  const t = Date.now() / 1000;
+  for (let i = 0; i < 12; i++) {
+    const hx = W/2 + Math.sin(t * 0.5 + i * 0.55) * 300 + Math.cos(t * 0.3 + i * 1.2) * 50;
+    const hy = 100 + Math.cos(t * 0.4 + i * 0.7) * 60 + i * 8;
+    const hSize = 6 + Math.sin(t * 0.8 + i) * 4 + (i % 3) * 3;
+    const hAlpha = 0.3 + Math.sin(t + i * 0.9) * 0.3;
+    ctx.globalAlpha = Math.max(0.05, hAlpha);
+    drawHeartShape(hx, hy, hSize, i % 3 === 0 ? COL.pink : i % 3 === 1 ? COL.pinkLight : '#FFB3C6');
+  }
+  ctx.globalAlpha = 1;
+
+  // Title text with glow
+  ctx.save();
   ctx.textAlign = 'center';
+  ctx.shadowColor = 'rgba(255,107,157,0.6)';
+  ctx.shadowBlur = 12;
   ctx.fillStyle = COL.white;
   ctx.font = 'bold 22px Fredoka';
-  ctx.fillText('THE WEST VILLAGE', W/2, 160);
-  ctx.fillStyle = COL.pinkLight;
-  ctx.font = 'bold 36px Fredoka';
-  ctx.fillText('WIENER DASH', W/2, 205);
+  ctx.fillText('THE WEST VILLAGE', W/2, 155);
+  ctx.shadowBlur = 0;
 
-  // Subtitle
-  const blink = Math.sin(Date.now() / 400) > 0;
-  if (blink) {
-    ctx.fillStyle = COL.white;
-    ctx.font = 'bold 14px Fredoka';
-    ctx.fillText('Press SPACE or Tap to Start', W/2, 280);
-  }
+  // "WIENER DASH" — gradient fill with strong glow
+  ctx.font = 'bold 42px Fredoka';
+  const titleGrad = ctx.createLinearGradient(W/2 - 140, 180, W/2 + 140, 210);
+  titleGrad.addColorStop(0, '#FF6B9D');
+  titleGrad.addColorStop(0.5, '#FFD700');
+  titleGrad.addColorStop(1, '#FF6B9D');
+  ctx.fillStyle = titleGrad;
+  ctx.shadowColor = 'rgba(231,84,128,0.7)';
+  ctx.shadowBlur = 20;
+  ctx.fillText('WIENER DASH', W/2, 205);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  // Valentine's subtitle
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,179,198,0.8)';
+  ctx.font = '600 14px Fredoka';
+  ctx.fillText("A Valentine's Day Adventure", W/2, 232);
+
+  // Smooth pulsing start prompt
+  const promptAlpha = 0.3 + (Math.sin(Date.now() / 600) + 1) * 0.35;
+  ctx.globalAlpha = promptAlpha;
+  ctx.fillStyle = COL.white;
+  ctx.font = 'bold 15px Fredoka';
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,107,157,0.5)';
+  ctx.shadowBlur = 8;
+  ctx.fillText('Press SPACE or Tap to Start', W/2, 275);
+  ctx.restore();
+  ctx.globalAlpha = 1;
 
   // Controls hint
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
   ctx.font = '12px Fredoka';
-  ctx.fillText('\u2190 \u2192 Switch Lanes  |  \u2191 Jump  |  \u2193 Slide', W/2, 320);
-  ctx.fillText('Swipe on mobile', W/2, 340);
+  ctx.fillText('\u2190 \u2192 Switch Lanes  |  \u2191 Jump  |  \u2193 Slide', W/2, 310);
+  ctx.fillText('Swipe on mobile', W/2, 328);
 
-  // Floating hearts
-  const t = Date.now() / 1000;
-  for (let i = 0; i < 6; i++) {
-    const hx = W/2 + Math.sin(t * 0.8 + i * 1.1) * 200;
-    const hy = 120 + Math.cos(t * 0.6 + i * 0.8) * 40;
-    drawHeartShape(hx, hy, 8 + Math.sin(t + i) * 3, i % 2 === 0 ? COL.pink : COL.pinkLight);
-  }
+  // Ground shadow for dog
+  ctx.fillStyle = 'rgba(161,136,127,0.4)';
+  ctx.beginPath();
+  ctx.ellipse(W/2, H - 105, 90, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
 
   // Animated dachshund on title
-  const dogTitleX = W/2;
-  const dogTitleY = H - 150;
   ctx.save();
-  ctx.translate(dogTitleX, dogTitleY);
+  ctx.translate(W/2, H - 150);
   const idleFrame = Math.floor(Date.now() / 200) % 4;
-  drawDogRunning(100, idleFrame); // Bigger dog at end
+  drawDogRunning(100, idleFrame);
   ctx.restore();
 
   ctx.textAlign = 'left';
@@ -2300,84 +2714,91 @@ function drawTitle() {
 
 // --- Finale Scene ---
 function drawFinaleScene() {
-  // Apartment interior
   drawApartmentInterior();
 
-  // Smiski with sign (appears after delay)
+  // Smiski with elastic entrance
   if (finaleTimer > 1.5) {
     const sx = W/2;
     const sy = H/2 + 30;
-    const smiskiScale = Math.min(1, (finaleTimer - 1.5) * 2);
+    const rawT = Math.min(1, (finaleTimer - 1.5) * 2.5);
+    // Elastic bounce: overshoots to ~1.15 then settles
+    const smiskiScale = rawT >= 1 ? 1 : rawT + Math.sin(rawT * Math.PI * 3) * 0.15 * (1 - rawT);
     ctx.save();
     ctx.translate(sx, sy);
     ctx.scale(smiskiScale, smiskiScale);
-    // Big smiski
     if (window.smiskiFullImg && window.smiskiFullImg.complete) {
-      // Draw the beautiful heart-holding smiski image (Wider & Bigger)
-      const imgW = 180;
-      const imgH = 180;
+      const imgW = 180, imgH = 180;
       ctx.drawImage(window.smiskiFullImg, -imgW/2, -imgH * 0.75, imgW, imgH);
     } else {
       ctx.fillStyle = COL.smiski;
-      ctx.beginPath();
-      ctx.ellipse(0, 10, 25, 35, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(0, -25, 22, 0, Math.PI * 2);
-      ctx.fill();
-      // Eyes
+      ctx.beginPath(); ctx.ellipse(0, 10, 25, 35, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, -25, 22, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#333';
-      ctx.beginPath();
-      ctx.arc(-7, -28, 3, 0, Math.PI * 2);
-      ctx.arc(7, -28, 3, 0, Math.PI * 2);
-      ctx.fill();
-      // Blush
+      ctx.beginPath(); ctx.arc(-7, -28, 3, 0, Math.PI * 2); ctx.arc(7, -28, 3, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#FFB3C6';
-      ctx.beginPath();
-      ctx.ellipse(-14, -22, 5, 2.5, 0, 0, Math.PI * 2);
-      ctx.ellipse(14, -22, 5, 2.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Smile
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(0, -22, 6, 0.2, Math.PI - 0.2);
-      ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(-14, -22, 5, 2.5, 0, 0, Math.PI * 2); ctx.ellipse(14, -22, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, -22, 6, 0.2, Math.PI - 0.2); ctx.stroke();
     }
     ctx.restore();
   }
 
-  // Text
+  // Typewriter text with click sounds
   if (finaleTimer > 2) {
     const text1 = "You made it home!";
     const chars1 = Math.floor((finaleTimer - 2) * 8);
+    if (chars1 > lastTypeChar1 && chars1 <= text1.length) {
+      lastTypeChar1 = chars1;
+      try { initAudio(); const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.connect(g); g.connect(audioCtx.destination); o.type = 'sine';
+        o.frequency.value = 800 + Math.random() * 200; g.gain.value = 0.02;
+        const t = audioCtx.currentTime; g.gain.linearRampToValueAtTime(0, t + 0.03);
+        o.start(t); o.stop(t + 0.03); } catch(e) {}
+    }
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 6;
     ctx.fillStyle = COL.white;
-    ctx.font = 'bold 20px Fredoka';
+    ctx.font = 'bold 22px Fredoka';
     ctx.textAlign = 'center';
     ctx.fillText(text1.substring(0, Math.min(chars1, text1.length)), W/2, 100);
+    ctx.restore();
   }
 
   if (finaleTimer > 4) {
     const text2 = "Will you be my Valentine?";
     const chars2 = Math.floor((finaleTimer - 4) * 6);
+    if (chars2 > lastTypeChar2 && chars2 <= text2.length) {
+      lastTypeChar2 = chars2;
+      try { initAudio(); const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.connect(g); g.connect(audioCtx.destination); o.type = 'sine';
+        o.frequency.value = 900 + Math.random() * 200; g.gain.value = 0.02;
+        const t = audioCtx.currentTime; g.gain.linearRampToValueAtTime(0, t + 0.03);
+        o.start(t); o.stop(t + 0.03); } catch(e) {}
+    }
+    ctx.save();
+    ctx.shadowColor = 'rgba(231,84,128,0.5)'; ctx.shadowBlur = 10;
     ctx.fillStyle = COL.pinkLight;
-    ctx.font = 'bold 26px Fredoka';
+    ctx.font = 'bold 28px Fredoka';
     ctx.textAlign = 'center';
-    ctx.fillText(text2.substring(0, Math.min(chars2, text2.length)), W/2, 140);
+    ctx.fillText(text2.substring(0, Math.min(chars2, text2.length)), W/2, 145);
+    ctx.restore();
   }
 
-  // Show buttons
+  // Show buttons via CSS class transition
   if (finaleTimer > 7) {
-    document.getElementById('finaleButtons').style.display = 'flex';
+    document.getElementById('finaleButtons').classList.add('visible');
   }
 
   // Floating hearts
   const t = Date.now() / 1000;
-  for (let i = 0; i < 8; i++) {
-    const hx = W/2 + Math.sin(t + i * 0.8) * 250;
-    const hy = 80 + Math.cos(t * 0.7 + i) * 30;
-    drawHeartShape(hx, hy, 6 + Math.sin(t + i) * 2, i % 2 === 0 ? COL.pink : COL.pinkLight);
+  for (let i = 0; i < 10; i++) {
+    const hx = W/2 + Math.sin(t + i * 0.8) * 280;
+    const hy = 70 + Math.cos(t * 0.7 + i) * 35;
+    const hAlpha = 0.3 + Math.sin(t + i * 0.6) * 0.25;
+    ctx.globalAlpha = Math.max(0.05, hAlpha);
+    drawHeartShape(hx, hy, 6 + Math.sin(t + i) * 3, i % 3 === 0 ? COL.pink : i % 3 === 1 ? COL.pinkLight : '#FFB3C6');
   }
+  ctx.globalAlpha = 1;
 
   drawParticles();
   ctx.textAlign = 'left';
@@ -2387,15 +2808,31 @@ function drawFinaleScene() {
 function drawDoneScene() {
   drawApartmentInterior();
 
-  // Confetti
+  // Enhanced confetti with varied shapes
   confetti.forEach(c => {
     ctx.save();
     ctx.translate(c.x, c.y);
     ctx.rotate(c.rot);
     ctx.fillStyle = c.color;
-    ctx.fillRect(-c.size/2, -c.size/4, c.size, c.size/2);
+    ctx.globalAlpha = Math.min(1, (H + 30 - c.y) / 100);
+    if (c.size > 7) {
+      // Star
+      ctx.beginPath();
+      for (let j = 0; j < 5; j++) {
+        const a = (j / 5) * Math.PI * 2 - Math.PI / 2;
+        const inner = (j + 0.5) / 5 * Math.PI * 2 - Math.PI / 2;
+        ctx.lineTo(Math.cos(a) * c.size * 0.5, Math.sin(a) * c.size * 0.5);
+        ctx.lineTo(Math.cos(inner) * c.size * 0.2, Math.sin(inner) * c.size * 0.2);
+      }
+      ctx.closePath(); ctx.fill();
+    } else if (c.size > 5) {
+      ctx.beginPath(); ctx.arc(0, 0, c.size * 0.4, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillRect(-c.size/2, -c.size/4, c.size, c.size/2);
+    }
     ctx.restore();
   });
+  ctx.globalAlpha = 1;
 
   // Hearts
   hearts.forEach(h => {
@@ -2404,25 +2841,42 @@ function drawDoneScene() {
   });
   ctx.globalAlpha = 1;
 
-  // Text
-  ctx.fillStyle = COL.pinkLight;
-  ctx.font = 'bold 28px Fredoka';
+  // Animated text with glow
+  ctx.save();
   ctx.textAlign = 'center';
-  ctx.fillText("Happy Valentine's Day!", W/2, 80);
-
+  const textPulse = 1 + Math.sin(Date.now() / 800) * 0.03;
+  ctx.translate(W/2, 80);
+  ctx.scale(textPulse, textPulse);
+  ctx.shadowColor = 'rgba(255,107,157,0.5)';
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = COL.pinkLight;
+  ctx.font = 'bold 30px Fredoka';
+  ctx.fillText("Happy Valentine's Day!", 0, 0);
+  ctx.shadowBlur = 0;
   ctx.fillStyle = COL.white;
-  ctx.font = 'bold 18px Fredoka';
-  ctx.fillText('I love you!', W/2, 120);
+  ctx.font = 'bold 20px Fredoka';
+  ctx.fillText('I love you!', 0, 45);
+  ctx.restore();
 
-  // Big beating heart
-  const beat = 1 + Math.sin(Date.now() / 300) * 0.08;
-  drawHeartShape(W/2, H/2 - 30, 35 * beat, COL.pink);
+  // Big beating heart with particle ring
+  const beat = 1 + Math.sin(Date.now() / 300) * 0.12;
+  drawHeartShape(W/2, H/2 - 30, 40 * beat, COL.pink);
+  // Emit particles from heart
+  if (Math.random() < 0.15) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 45 + Math.random() * 10;
+    hearts.push({
+      x: W/2 + Math.cos(angle) * dist, y: H/2 - 30 + Math.sin(angle) * dist,
+      vy: -0.5 - Math.random(), size: 4 + Math.random() * 4,
+      color: Math.random() > 0.5 ? COL.pink : COL.pinkLight, alpha: 0.8,
+    });
+  }
 
   // Happy dog
   ctx.save();
   ctx.translate(W/2, H/2 + 80);
   const spinFrame = Math.floor(Date.now() / 150) % 4;
-  drawDogRunning(90, spinFrame); // Bigger happy dog
+  drawDogRunning(90, spinFrame);
   ctx.restore();
 
   ctx.textAlign = 'left';
@@ -2627,7 +3081,7 @@ function acceptValentine() {
   if (state !== STATE.FINALE) return;
   state = STATE.DONE;
   finaleTimer = 0;
-  document.getElementById('finaleButtons').style.display = 'none';
+  document.getElementById('finaleButtons').classList.remove('visible');
   spawnConfettiExplosion();
   for (let i = 0; i < 15; i++) spawnHeart();
   playSound('finale');
