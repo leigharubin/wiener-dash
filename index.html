@@ -1291,48 +1291,53 @@ function drawCloud(x, y, r) {
 }
 
 function drawNYCSkylineLeft() {
-  const y = VANISH_Y; // Grounded on horizon
+  // Use projected horizon (where ground meets sky at MAX_Z) instead of VANISH_Y
+  const horizonProject = project(0, 0, MAX_Z);
+  const y = horizonProject.y; // Grounded on visual horizon
   const startX = 20;
   
-  // Freedom Tower (1 WTC) - tallest with spire
-  ctx.fillRect(startX + 80, y - 75, 18, 75);
-  ctx.beginPath();
-  ctx.moveTo(startX + 89, y - 75);
-  ctx.lineTo(startX + 89, y - 100);
-  ctx.lineTo(startX + 89, y - 75);
-  ctx.fill();
-  // Draw spire as line
-  ctx.strokeStyle = COL.skyline;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(startX + 89, y - 75);
-  ctx.lineTo(startX + 89, y - 105);
-  ctx.stroke();
-  
-  // Other downtown Manhattan buildings
+  // Downtown Manhattan buildings (left to right, smaller to larger)
   ctx.fillStyle = COL.skyline;
   ctx.fillRect(startX, y - 30, 14, 30);
   ctx.fillRect(startX + 18, y - 45, 16, 45);
   ctx.fillRect(startX + 38, y - 35, 12, 35);
   ctx.fillRect(startX + 54, y - 55, 20, 55);
-  ctx.fillRect(startX + 105, y - 40, 15, 40);
-  ctx.fillRect(startX + 125, y - 50, 18, 50);
-  ctx.fillRect(startX + 148, y - 32, 14, 32);
-  ctx.fillRect(startX + 168, y - 42, 16, 42);
-  ctx.fillRect(startX + 190, y - 28, 12, 28);
-  ctx.fillRect(startX + 208, y - 38, 15, 38);
+  ctx.fillRect(startX + 80, y - 40, 15, 40);
+  ctx.fillRect(startX + 100, y - 50, 18, 50);
+  ctx.fillRect(startX + 123, y - 32, 14, 32);
+  ctx.fillRect(startX + 143, y - 42, 16, 42);
+  ctx.fillRect(startX + 165, y - 28, 12, 28);
+  ctx.fillRect(startX + 183, y - 38, 15, 38);
   
-  // Fade buildings toward center
+  // Fade buildings toward Freedom Tower
   ctx.fillStyle = COL.skylineLight;
-  ctx.fillRect(startX + 230, y - 22, 12, 22);
-  ctx.fillRect(startX + 248, y - 18, 10, 18);
+  ctx.fillRect(startX + 205, y - 22, 12, 22);
+  ctx.fillRect(startX + 223, y - 18, 10, 18);
+  
+  // Freedom Tower (1 WTC) - tallest with spire, now on the right
+  ctx.fillStyle = COL.skyline;
+  ctx.fillRect(startX + 240, y - 75, 18, 75);
+  ctx.beginPath();
+  ctx.moveTo(startX + 249, y - 75);
+  ctx.lineTo(startX + 249, y - 100);
+  ctx.lineTo(startX + 249, y - 75);
+  ctx.fill();
+  // Draw spire as line
+  ctx.strokeStyle = COL.skyline;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(startX + 249, y - 75);
+  ctx.lineTo(startX + 249, y - 105);
+  ctx.stroke();
 }
 
 function drawStatueOfLiberty() {
-  const y = VANISH_Y - 8;
+  // Use projected horizon (where ground meets sky at MAX_Z) instead of VANISH_Y
+  const horizonProject = project(0, 0, MAX_Z);
+  const y = horizonProject.y - 25; // Raised higher for better visibility
   const x = W - 80;
   
-  // Small in distance (perspective)
+  // Larger and more visible (scaled up)
   ctx.fillStyle = '#4A6B5A'; // Copper green color
   
   // Pedestal
@@ -2756,8 +2761,8 @@ function drawFinaleScene() {
         o.start(t); o.stop(t + 0.03); } catch(e) {}
     }
     ctx.save();
-    ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 6;
-    ctx.fillStyle = COL.white;
+    ctx.shadowColor = 'rgba(231,84,128,0.3)'; ctx.shadowBlur = 6;
+    ctx.fillStyle = COL.pink; // Changed from white for visibility
     ctx.font = 'bold 22px Fredoka';
     ctx.textAlign = 'center';
     ctx.fillText(text1.substring(0, Math.min(chars1, text1.length)), W/2, 100);
@@ -2853,9 +2858,9 @@ function drawDoneScene() {
   ctx.font = 'bold 30px Fredoka';
   ctx.fillText("Happy Valentine's Day!", 0, 0);
   ctx.shadowBlur = 0;
-  ctx.fillStyle = COL.white;
+  ctx.fillStyle = COL.pink; // Changed from white for better visibility
   ctx.font = 'bold 20px Fredoka';
-  ctx.fillText('I love you!', 0, 45);
+  ctx.fillText('I love lamp 💡', 0, 45);
   ctx.restore();
 
   // Big beating heart with particle ring
